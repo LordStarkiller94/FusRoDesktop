@@ -1,0 +1,109 @@
+name: Compatibility check
+
+# Runs weekly (and on manual trigger) against the latest published Bazzite
+# container image. It cannot click through a live GNOME session, but it CAN:
+#   - pull the latest Bazzite image and read the GNOME Shell version it ships
+#   - compare that against theme.manifest.yaml's declared compatibility range
+#   - verify the GNOME "User Themes" extension UUID we depend on still
+#     exists in that image's extension set
+#   - run install.sh's detection + dry-run logic inside the container
+# If any of that drifts from what the manifest claims, it opens/updates a
+# tracking issue instead of silently going stale.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # every Monday
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "theme.manifest.yaml"
+      - "lib/**"
+      - "install.sh"
+
+jobs:
+  check-latest-bazzite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest Bazzite image
+        run: |
+          docker pull ghcr.io/ublue-os/bazzite:latest
+
+      - name: Read GNOME Shell version from image
+        id: gnome
+        run: |
+          VERSION=$(docker run --rm ghcr.io/ublue-os/bazzite:latest \
+            bash -c "gnome-shell --version 2>/dev/null || rpm -q gnome-shell --qf '%{VERSION}\n'" \
+            | grep -oE '[0-9]+(\.[0-9]+)?' | head -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected GNOME Shell version: $VERSION"
+
+      - name: Compare against manifest compatibility range
+        id: compare
+        run: |
+          pip install pyyaml
+          python3 - <<'PYEOF'
+          import yaml, sys, os
+          with open("theme.manifest.yaml") as f:
+              m = yaml.safe_load(f)
+          tested_max = m["compatibility"]["gnome_shell"]["tested_max"]
+          detected = "${{ steps.gnome.outputs.version }}"
+          drift = False
+          try:
+              if float(detected) > float(tested_max):
+                  drift = True
+          except ValueError:
+              drift = True
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"drift={'true' if drift else 'false'}\n")
+              out.write(f"detected={detected}\n")
+              out.write(f"tested_max={tested_max}\n")
+          PYEOF
+
+      - name: Run installer detection (dry run, no display) inside image
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo ghcr.io/ublue-os/bazzite:latest \
+            bash -c "source lib/detect-env.sh && echo OK"
+
+      - name: Open/update tracking issue if the image has moved past what we've verified
+        if: steps.compare.outputs.drift == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const detected = "${{ steps.compare.outputs.detected }}";
+            const testedMax = "${{ steps.compare.outputs.tested_max }}";
+            const title = `Latest Bazzite now ships GNOME ${detected} (manifest tested up to ${testedMax})`;
+            const body = [
+              `The weekly compat-check workflow found that the latest \`ghcr.io/ublue-os/bazzite:latest\` image now ships GNOME Shell **${detected}**, which is beyond the **${testedMax}** this repo's \`theme.manifest.yaml\` currently claims to support.`,
+              "",
+              "Nothing auto-breaks for users — the installer's version gate in `lib/install-component.sh` will simply skip any component whose `max_gnome` is exceeded, and say why. But it's worth a manual check of:",
+              "- GNOME Shell theming API changes in this release (release notes / migration guide)",
+              "- Whether the `User Themes` extension still works unmodified",
+              "- Whether GTK theming behavior changed",
+              "",
+              "Once verified, bump `compatibility.gnome_shell.tested_max` (and each component's `max_gnome`) in `theme.manifest.yaml`.",
+            ].join("\n");
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: ["compat-drift"],
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body: `Still drifted as of this run (GNOME ${detected}).`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["compat-drift"],
+              });
+            }

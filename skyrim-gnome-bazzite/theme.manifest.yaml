@@ -1,0 +1,66 @@
+# theme.manifest.yaml
+#
+# This is the ONLY file (besides assets/) that is Skyrim-specific.
+# The engine in lib/ reads this to know what to install and what it's
+# compatible with. A future theme fork edits this file, not lib/.
+
+theme:
+  name: "Skyrim"
+  slug: "skyrim"                 # used for dirs/keys: ~/.local/share/themes/Skyrim-Shell etc.
+  version: "0.1.0"
+  description: "The Elder Scrolls V: Skyrim desktop overhaul for GNOME"
+  homepage: "https://github.com/<you>/skyrim-gnome-bazzite"
+
+# Components this theme provides. The installer only tries to install
+# a component if its asset directory is non-empty.
+components:
+  icons:
+    asset_dir: "assets/icons/Skyrim-Icons"
+    install_path: "~/.local/share/icons/Skyrim-Icons"
+    requires_extension: null
+
+  cursors:
+    asset_dir: "assets/cursors/Skyrim-Cursors"
+    install_path: "~/.local/share/icons/Skyrim-Cursors"
+    requires_extension: null
+
+  wallpapers:
+    asset_dir: "assets/wallpapers"
+    install_path: "~/.local/share/backgrounds/skyrim"
+    requires_extension: null
+
+  gtk_theme:
+    asset_dir: "assets/gtk-theme/Skyrim-Gtk"
+    install_path: "~/.local/share/themes/Skyrim-Gtk"
+    requires_extension: null
+    min_gnome: "40"
+    max_gnome: null             # null = no known upper bound yet
+
+  shell_theme:
+    asset_dir: "assets/shell-theme/Skyrim-Shell"
+    install_path: "~/.local/share/themes/Skyrim-Shell"
+    requires_extension: "user-theme@gnome-shell-extensions.gcampax.github.com"
+    min_gnome: "40"
+    max_gnome: null             # updated by CI / maintainers as GNOME evolves
+
+  plymouth:
+    asset_dir: "assets/plymouth/skyrim"
+    install_path: "/usr/share/plymouth/themes/skyrim"   # requires sudo, separate script
+    requires_extension: null
+    sudo_required: true
+
+  grub:
+    asset_dir: "assets/plymouth/grub"                   # shipped alongside plymouth assets
+    install_path: "/boot/grub2/themes/skyrim"
+    requires_extension: null
+    sudo_required: true
+
+# Version compatibility this repo currently CLAIMS to support.
+# docs/COMPATIBILITY.md and the CI workflow keep this honest.
+compatibility:
+  gnome_shell:
+    tested_min: "42"
+    tested_max: "48"
+  bazzite:
+    tested_stream: ["stable", "latest"]
+  last_verified: "2026-09-25"
